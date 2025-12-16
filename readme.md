@@ -21,10 +21,8 @@ Follow these steps to set up the directory and run the game:
 1.  **Clone the Repository:**
     Run this command to download the code **into the current directory**:
     ```bash
-    git clone https://github.com/Clue0110/All_In.git .
+    git clone https://github.com/Clue0110/All_In.git
     ```
-    *(Note the `.` at the end of the command. This ensures the files are placed directly inside your new `All_In` folder).*
-
 
 2.  **Enter the Directory:**
     Open your terminal and run:
