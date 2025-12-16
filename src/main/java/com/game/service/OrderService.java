@@ -4,17 +4,19 @@ import com.game.repo.*;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import java.time.LocalDateTime;
 
 @Service
 public class OrderService {
     @Autowired private StockRepository stockRepo;
     @Autowired private UserRepository userRepo;
     @Autowired private PortfolioRepository portfolioRepo;
+    @Autowired private TransactionRepository transactionRepo;
 
     @Transactional // Atomosicity across multiple DB operations
-    public void buyStock(Long userId, Long stockId, int quantity) throws Exception {
+    public Transaction buyStock(Long userId, Long stockId, int quantity) throws Exception {
         User user = userRepo.findById(userId).orElseThrow();
-        Stock stock = stockRepo.findByIdWithLock(stockId).orElseThrow(); // The OG -> Locking
+        Stock stock = stockRepo.findByIdWithLock(stockId).orElseThrow();
 
         double totalCost = stock.getPrice() * quantity;
         
@@ -22,29 +24,37 @@ public class OrderService {
         if (stock.getAvailableShares() < quantity) throw new Exception("Not enough shares!");
 
         user.setBalance(user.getBalance() - totalCost);
-        userRepo.save(user);
-
         stock.setAvailableShares(stock.getAvailableShares() - quantity);
+        
+        userRepo.save(user);
         stockRepo.save(stock);
 
         Portfolio portfolio = portfolioRepo.findByUserAndStock(user, stock);
-        if (portfolio == null) { // If user doesnt own this stock yet
+        if (portfolio == null) {
             portfolio = new Portfolio();
             portfolio.setUser(user);
             portfolio.setStock(stock);
             portfolio.setQuantity(0);
             portfolio.setTotalInvestment(0.0);
         }
-        
         portfolio.setQuantity(portfolio.getQuantity() + quantity);
         portfolio.setTotalInvestment(portfolio.getTotalInvestment() + totalCost);
         portfolioRepo.save(portfolio);
+
+        Transaction t = new Transaction();
+        t.setUser(user);
+        t.setStock(stock);
+        t.setType("BUY");
+        t.setQuantity(quantity);
+        t.setPrice(stock.getPrice());
+        t.setTimestamp(LocalDateTime.now());
+        return transactionRepo.save(t);
     }
 
     @Transactional
-    public void sellStock(Long userId, Long stockId, int quantity) throws Exception {
+    public Transaction sellStock(Long userId, Long stockId, int quantity) throws Exception {
         User user = userRepo.findById(userId).orElseThrow();
-        Stock stock = stockRepo.findByIdWithLock(stockId).orElseThrow(); // The OG -> Locking
+        Stock stock = stockRepo.findByIdWithLock(stockId).orElseThrow();
         Portfolio portfolio = portfolioRepo.findByUserAndStock(user, stock);
 
         if (portfolio == null || portfolio.getQuantity() < quantity) {
@@ -54,12 +64,11 @@ public class OrderService {
         double saleValue = stock.getPrice() * quantity;
         
         user.setBalance(user.getBalance() + saleValue);
-        userRepo.save(user);
-
         stock.setAvailableShares(stock.getAvailableShares() + quantity);
+        
+        userRepo.save(user);
         stockRepo.save(stock);
 
-        // Update Portfolio (Proportional Cost Basis Reduction)
         double costPerShare = portfolio.getTotalInvestment() / portfolio.getQuantity();
         double costOfSoldShares = costPerShare * quantity;
 
@@ -71,5 +80,14 @@ public class OrderService {
         } else {
             portfolioRepo.save(portfolio);
         }
+
+        Transaction t = new Transaction();
+        t.setUser(user);
+        t.setStock(stock);
+        t.setType("SELL");
+        t.setQuantity(quantity);
+        t.setPrice(stock.getPrice());
+        t.setTimestamp(LocalDateTime.now());
+        return transactionRepo.save(t);
     }
 }
