@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Stock Market (Multiplayer)</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.5.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .price-up { color: green; font-weight: bold; }
+        .price-down { color: red; font-weight: bold; }
+        .stat-card { background: #f8f9fa; border-left: 5px solid #0d6efd; }
+        .user-bar { background: #212529; color: white; padding: 10px 0; margin-bottom: 20px; }
+    </style>
+</head>
+<body class="bg-light">
+
+    <div class="user-bar shadow-sm">
+        <div class="container d-flex justify-content-between align-items-center">
+            <h4 class="m-0">All In</h4>
+            
+            <div class="d-flex align-items-center">
+                <label class="me-2 text-white-50">Current Player:</label>
+                
+                <select id="userSelector" class="form-select form-select-sm me-2" style="width: 150px;" onchange="switchUser()">
+                    <option th:each="u : ${allUsers}" 
+                            th:value="${u.id}" 
+                            th:text="${u.username}"
+                            th:selected="${u.id == user.id}"></option>
+                </select>
+
+                <button class="btn btn-sm btn-success me-2" onclick="createNewUser()" title="Add Player">
+                    + New
+                </button>
+                <button class="btn btn-sm btn-danger" onclick="deleteUser()" title="Delete Current Player">
+                    Delete
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card stat-card p-3">
+                    <small class="text-muted">Cash Balance</small>
+                    <h3 id="cashDisplay">$<span th:text="${user.balance}">0</span></h3>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card p-3" style="border-left-color: #198754;">
+                    <small class="text-muted">Total Portfolio Value</small>
+                    <h3 id="totalValueDisplay">update06.sh.00</h3>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card p-3" style="border-left-color: #ffc107;">
+                    <small class="text-muted">Total Profit / Loss</small>
+                    <h3 id="plDisplay">update06.sh.00</h3>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-7">
+                <div class="card mb-4 shadow-sm">
+                    <div class="card-header bg-dark text-white">Live Market Trends</div>
+                    <div class="card-body">
+                        <canvas id="marketChart" height="200"></canvas>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm">
+                    <div class="card-header bg-primary text-white">Market Data</div>
+                    <div class="card-body p-0">
+                        <table class="table table-hover mb-0">
+                            <thead><tr><th>Ticker</th><th>Price</th><th>Avail</th><th>Action</th></tr></thead>
+                            <tbody>
+                                <tr th:each="stock : ${stocks}" th:id="'stock-row-' + ${stock.id}">
+                                    <td th:text="${stock.ticker}" class="fw-bold"></td>
+                                    <td th:text="${stock.price}" class="stock-price" th:data-id="${stock.id}">0.00</td>
+                                    <td th:text="${stock.availableShares}" class="stock-avail">0</td>
+                                    <td>
+                                        <div class="d-flex">
+                                            <input type="number" th:id="'qty-buy-' + ${stock.id}" value="1" min="1" class="form-control form-control-sm me-2" style="width: 60px;"/>
+                                            <button type="button" class="btn btn-sm btn-outline-success" 
+                                                    th:onclick="'trade(\'buy\', ' + ${stock.id} + ')'">Buy</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-5">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header bg-secondary text-white">
+                        <span th:text="${user.username}"></span>'s Holdings
+                    </div>
+                    <ul class="list-group list-group-flush" id="portfolioList">
+                        <li class="list-group-item portfolio-item" 
+                            th:each="p : ${portfolio}" 
+                            th:id="'port-item-' + ${p.stock.id}"
+                            th:data-stock-id="${p.stock.id}"
+                            th:data-quantity="${p.quantity}"
+                            th:data-investment="${p.totalInvestment}">
+                            
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <span class="fw-bold" th:text="${p.stock.ticker}"></span>
+                                    <span class="badge bg-primary rounded-pill ms-2" th:text="${p.quantity}"></span>
+                                    <br>
+                                    <small class="text-muted">Avg: <span th:text="${#numbers.formatDecimal(p.totalInvestment / p.quantity, 1, 2)}"></span></small>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <input type="number" th:id="'qty-sell-' + ${p.stock.id}" value="1" min="1" class="form-control form-control-sm me-2" style="width: 50px;">
+                                    <button type="button" class="btn btn-sm btn-outline-danger" 
+                                            th:onclick="'trade(\'sell\', ' + ${p.stock.id} + ')'">Sell</button>
+                                </div>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <input type="hidden" id="currentUserId" th:value="${user.id}" />
+
+    <script>
+
+        // User Management Functions
+        
+        function switchUser() {
+            const userId = document.getElementById("userSelector").value;
+            window.location.href = "/?userId=" + userId;
+        }
+
+        function createNewUser() {
+            const name = prompt("Enter new player name:");
+            if (name) {
+                fetch('/api/user/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ username: name })
+                })
+                .then(res => res.json())
+                .then(user => {
+                    alert("Welcome, " + user.username + "!");
+                    window.location.href = "/?userId=" + user.id;
+                })
+                .catch(err => alert("Failed to create user."));
+            }
+        }
+
+        function deleteUser() {
+            const userId = document.getElementById("currentUserId").value;
+            const userName = document.getElementById("userSelector").selectedOptions[0].text;
+            
+            if(confirm("Are you sure you want to delete " + userName + "? This cannot be undone.")) {
+                fetch('/api/user/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ userId: userId })
+                })
+                .then(res => {
+                    if(!res.ok) return res.text().then(t => { throw new Error(t) });
+                    return res.text();
+                })
+                .then(() => {
+                    alert("Player deleted.");
+                    window.location.href = "/"; // Go back to default user
+                })
+                .catch(err => alert("Error: " + err.message));
+            }
+        }
+
+        // Chart and Websocket
+        const ctx = document.getElementById('marketChart').getContext('2d');
+        const marketChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [] },
+            options: { responsive: true, animation: false, scales: { x: { display: false } } }
+        });
+        const colors = ['#0d6efd', '#198754', '#dc3545', '#ffc107', '#6610f2'];
+
+        var socket = new SockJS('/ws-stock-market');
+        var stompClient = Stomp.over(socket);
+        stompClient.debug = null; 
+
+        stompClient.connect({}, function (frame) {
+            console.log('Connected.');
+            stompClient.subscribe('/topic/ticker', function (message) {
+                updateMarket(JSON.parse(message.body));
+            });
+        });
+
+        // Trade
+        function trade(action, stockId) {
+            const userId = document.getElementById('currentUserId').value;
+            let qty = 1;
+            
+            if (action === 'buy') {
+                const input = document.getElementById('qty-buy-' + stockId);
+                if(input && input.value) qty = input.value;
+            } else if (action === 'sell') {
+                const input = document.getElementById('qty-sell-' + stockId);
+                if(input && input.value) qty = input.value;
+            }
+
+            fetch('/api/trade', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ action: action, userId: userId, stockId: stockId, quantity: qty })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.error) {
+                    alert(data.error);
+                } else {
+                    document.getElementById('cashDisplay').innerText = "$" + data.balance.toFixed(2);
+                    rebuildPortfolioList(data.portfolio);
+                }
+            })
+            .catch(err => console.error("Trade failed:", err));
+        }
+
+        function rebuildPortfolioList(portfolioData) {
+            const list = document.getElementById('portfolioList');
+            list.innerHTML = ""; 
+            
+            portfolioData.forEach(p => {
+                if(p.quantity > 0) {
+                    let avg = (p.totalInvestment / p.quantity).toFixed(2);
+                    let li = document.createElement('li');
+                    li.className = "list-group-item portfolio-item";
+                    li.id = 'port-item-' + p.stock.id;
+                    li.setAttribute('data-stock-id', p.stock.id);
+                    li.setAttribute('data-quantity', p.quantity);
+                    li.setAttribute('data-investment', p.totalInvestment);
+                    
+                    li.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="fw-bold">${p.stock.ticker}</span>
+                                <span class="badge bg-primary rounded-pill ms-2">${p.quantity}</span>
+                                <br>
+                                <small class="text-muted">Avg: ${avg}</small>
+                            </div>
+                            <div class="d-flex align-items-center">
+                                <input type="number" id="qty-sell-${p.stock.id}" value="1" min="1" class="form-control form-control-sm me-2" style="width: 50px;">
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="trade('sell', ${p.stock.id})">Sell</button>
+                            </div>
+                        </div>
+                    `;
+                    list.appendChild(li);
+                }
+            });
+        }
+
+        // Market Update
+        function updateMarket(stocks) {
+            const now = new Date().toLocaleTimeString();
+            if (marketChart.data.labels.length > 20) {
+                marketChart.data.labels.shift();
+                marketChart.data.datasets.forEach(ds => ds.data.shift());
+            }
+            marketChart.data.labels.push(now);
+
+            let currentPortfolioValue = 0;
+            let totalInvestedCost = 0;
+
+            stocks.forEach((stock, index) => {
+                let dataset = marketChart.data.datasets.find(ds => ds.label === stock.ticker);
+                if (!dataset) {
+                    dataset = { label: stock.ticker, borderColor: colors[index % colors.length], data: [], fill: false, tension: 0.1 };
+                    marketChart.data.datasets.push(dataset);
+                }
+                dataset.data.push(stock.price);
+
+                let row = document.getElementById("stock-row-" + stock.id);
+                if(row) {
+                    let priceCell = row.querySelector(".stock-price");
+                    let availCell = row.querySelector(".stock-avail");
+                    let oldPrice = parseFloat(priceCell.innerText);
+                    
+                    priceCell.innerText = stock.price.toFixed(2);
+                    priceCell.className = "stock-price " + (stock.price >= oldPrice ? "price-up" : "price-down");
+                    availCell.innerText = stock.availableShares;
+                }
+
+                let portItem = document.getElementById('port-item-' + stock.id);
+                if(portItem) {
+                    let qty = parseInt(portItem.getAttribute('data-quantity'));
+                    let investment = parseFloat(portItem.getAttribute('data-investment'));
+                    currentPortfolioValue += (qty * stock.price);
+                    totalInvestedCost += investment;
+                }
+            });
+
+            marketChart.update();
+            document.getElementById('totalValueDisplay').innerText = "$" + currentPortfolioValue.toFixed(2);
+            
+            let profitLoss = currentPortfolioValue - totalInvestedCost;
+            let plElement = document.getElementById('plDisplay');
+            plElement.innerText = (profitLoss >= 0 ? "+" : "") + "$" + profitLoss.toFixed(2);
+            plElement.style.color = profitLoss >= 0 ? "green" : "red";
+        }
+    </script>
+</body>
+</html>
